@@ -125,7 +125,6 @@ head(df_madrid)
 8.  Existen varios Barrios que todas sus entradas de Square.Meters son NA, vamos a eliminar del dataset todos los pisos que pertenecen a estos barrios.
 
 ```{r}
-# -- Forma #2
 # Barrios con todos los registros de Square.Meters como NA
 neighbours_with_all_na <- with(df_madrid, tapply(Square.Meters, Neighbourhood, function(x) all(is.na(x))))
 
@@ -140,9 +139,7 @@ dim(df_madrid)
 
 ```
 
-```         
 ------------------------------------------------------------------------
-```
 
 9.  ¿Tienen todos los barrios los mismos metros cuadrados de media? ¿Con que test lo comprobarías?
 
@@ -251,9 +248,13 @@ ggplot(dfResm, aes(x=Var1, y=Var2, fill=value))+
 # Convertir p-valores a distancias
 distance_matrix <- 1 - resm
 
-# Realizar clustering jerárquico
-hc <- hclust(as.dist(distance_matrix), method = "complete")
-plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Distancia")
+d <- as.dist(distance_matrix)
+hc <- hclust(d, method = "complete")
+hcd <- as.dendrogram(hc)
+
+par(cex = 0.6)
+
+plot(hcd, main = "Dendrograma de Barrios basado en P-valores")
 
 ```
 
@@ -263,6 +264,12 @@ plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Di
 
 ```{r}
 
+# Cortar el dendrograma a la altura 0.2
+cut_interno <- cut(hcd, h = 0.2)
+
+# Dibujar el dendrograma cortado
+plot(cut_interno$upper, main = "Dendrograma con Corte a 0.2", cex = 1)
+
 ```
 
 ------------------------------------------------------------------------
@@ -270,6 +277,13 @@ plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Di
 11. Vamos a crear una nueva columna en el dataframe df_madrid con un nuevo identificador marcado por los clusters obtenidos. Esta columna la llamaremos neighb_id
 
 ```{r}
+# Cortar el dendrograma a la altura 0.2 para obtener los identificadores de cluster
+clusters <- cutree(hc, h = 0.2)
+
+df_madrid$neighb_id <- clusters[match(df_madrid$Neighbourhood, names(clusters))]
+
+# Verificar los primeros registros para confirmar que la columna se ha añadido correctamente
+head(df_madrid)
 
 ```
 
@@ -278,6 +292,12 @@ plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Di
 12. Vamos a crear dos grupos, uno test y otro train.
 
 ```{r}
+set.seed(123)  
+
+# Partición de datos (70% para entrenamiento, 30% para prueba)
+idx <- sample(1:nrow(df_madrid), nrow(df_madrid)*0.7)
+df_train <- df_madrid[ idx,]
+df_test  <- df_madrid[-idx,]
 
 ```
 
@@ -286,6 +306,13 @@ plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Di
 13. Tratamos de predecir los metros cuadrados en función del resto de columnas del dataframe.
 
 ```{r}
+# Convertir 'Neighbourhood' a factor
+#df_madrid$Neighbourhood <- as.factor(df_madrid$Neighbourhood)
+
+model <- lm(Square.Meters~., data = df_train)
+
+# Resumen del modelo para revisar los efectos de los diferentes barrios
+summary(model)
 
 ```
 
@@ -294,6 +321,24 @@ plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Di
 14. Evaluar la calidad de vuestro modelo
 
 ```{r}
+library(Metrics)
+
+# =========================================================================================
+
+# Tengo un problema de tener datos en el set de training que no están en el conjunto de Test
+
+# =========================================================================================
+
+# Evaluar el modelo en el conjunto de prueba
+predictions <- predict(model, newdata = df_test)
+
+# Calcular métricas de rendimiento
+rmse_value <- rmse(df_test$Square.Meters, predictions)
+mae_value <- mae(df_test$Square.Meters, predictions)
+
+# Mostrar las métricas de rendimiento
+print(paste("RMSE:", rmse_value))
+print(paste("MAE:", mae_value))
 
 ```
 
@@ -302,6 +347,40 @@ plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Di
 15. Si tuvieramos un anuncio de un apartamento para 6 personas (Accommodates), con 1 baño, con un precio de 80€/noche y 3 habitaciones en el barrio de Sol, con 3 camas y un review de 80. ¿Cuantos metros cuadrados tendría? Si tu modelo necesita algúna variable adicional puedes inventartela dentro del rango de valores del dataset. ¿Como varía sus metros cuadrados con cada habitación adicional?
 
 ```{r}
+model <- lm(Square.Meters ~ Accommodates + Bathrooms + Price + Bedrooms + Beds + Review.Scores.Rating + Neighbourhood, data = df_train)
+
+new_apartment <- data.frame(
+  Accommodates = 6,
+  Bathrooms = 1,
+  Price = 80,
+  Bedrooms = 3,
+  Beds = 3,
+  Review.Scores.Rating = 80,
+  Neighbourhood = factor("Sol", levels = levels(df_train$Neighbourhood))
+)
+
+# Realizar la predicción
+predicted_square_meters <- predict(model, newdata = new_apartment)
+print(paste("Estimación de metros cuadrados:", predicted_square_meters))
+
+```
+
+```{r}
+#¿Como varía sus metros cuadrados con cada habitación adicional?
+
+bedrooms_coefficient <- coef(model)["Bedrooms"]
+
+# Predicción con una habitación adicional
+new_apartment$Bedrooms <- 4
+predicted_with_more_bedrooms <- predict(model, newdata = new_apartment)
+
+print(paste("Metros cuadrados con una habitación adicional:", predicted_with_more_bedrooms))
+
+# Diferencia en metros cuadrados por cada habitación adicional
+difference_per_bedroom <- predicted_with_more_bedrooms - predicted_square_meters
+
+print(paste("Diferencia en metros cuadrados por cada habitación adicional:", difference_per_bedroom))
+
 
 ```
 
@@ -310,7 +389,15 @@ plot(hc, main = "Dendrograma de Barrios", xlab = "Barrios", sub = "", ylab = "Di
 16. Rellenar los Square.Meters con valor NA con el estimado con el modelo anterior.
 
 ```{r}
+na_indices <- is.na(df_madrid$Square.Meters)
+df_na_square_meters <- df_madrid[na_indices, ]
 
+df_na_square_meters$Neighbourhood <- factor(df_na_square_meters$Neighbourhood, levels = levels(df_train$Neighbourhood))
+
+predicted_values <- predict(model, newdata = df_na_square_meters)
+
+# Rellenar los valores NA en 'Square.Meters' con las predicciones
+df_madrid$Square.Meters[na_indices] <- predicted_values
 ```
 
 ------------------------------------------------------------------------
@@ -322,6 +409,85 @@ Crearemos una función tal que le pasemos un apartamento con los siguientes dato
 y nos devuelva los 5 más similares de:
 
 ```{r}
+
+find_similar_apartments <- function(given_apartment, apartments_data) {
+
+    numeric_columns <- c("Accommodates", "Bathrooms", "Bedrooms", "Beds", "Price", "Guests.Included", "Extra.People", "Review.Scores.Rating", "Latitude", "Longitude", "Square.Meters")
+
+  # Imputar valores NA y manejar infinitos
+  impute_values <- function(x) {
+    x[is.infinite(x)] <- NA  # Convertir infinitos a NA
+    if (all(is.na(x))) {
+      x[] <- 0  # Poner a cero si todos los valores son NA
+    } else {
+      x[is.na(x)] <- mean(x, na.rm = TRUE)  # Imputar NA con la media
+    }
+    return(x)
+  }
+
+  apartments_data[numeric_columns] <- lapply(apartments_data[numeric_columns], impute_values)
+  given_apartment[numeric_columns] <- lapply(given_apartment[numeric_columns], impute_values)
+
+  # Normalización 
+  safe_scale <- function(x) {
+    x_mean <- mean(x, na.rm = TRUE)
+    x_sd <- sd(x, na.rm = TRUE)
+    if (x_sd == 0 || is.na(x_sd)) {
+      return(rep(0, length(x)))  # Devolver cero si la desviación estándar es cero o NA
+    } else {
+      return((x - x_mean) / x_sd)  # Normalización estándar
+    }
+  }
+
+  apartments_scaled <- as.data.frame(
+    lapply(apartments_data[numeric_columns], 
+           safe_scale
+           ))
+
+  given_apartment_scaled <- as.data.frame(
+  lapply(given_apartment[numeric_columns], 
+         safe_scale
+         ))
+
+  # Aplicar PCA
+  pca <- prcomp(apartments_scaled, scale. = FALSE)
+
+  given_proj <- predict(pca, newdata = given_apartment_scaled)
+
+  # Calcular distancias euclideas 
+  distances <- sqrt(rowSums((sweep(pca$x[, 1:5], 2, given_proj, "-"))^2))
+
+  # Ordenar las distancias y seleccionar las 5 más cercanas
+  closest_indices <- order(distances)[1:5]
+
+  # Devolver los índices y distancias de los apartamentos más cercanos
+  return(list(indices = closest_indices, distances = distances[closest_indices]))
+}
+
+# Uso de la función
+new_apartment <- data.frame(
+  Accommodates = 6,
+  Bathrooms = 1,
+  Bedrooms = 3,
+  Beds = 3,
+  Price = 80,
+  Guests.Included = 2,
+  Extra.People = 0,
+  Review.Scores.Rating = 80,
+  Latitude = 40.4165,
+  Longitude = -3.7026,
+  Square.Meters = 55
+)
+
+apartments_data <- df_madrid
+similar_apartments <- find_similar_apartments(new_apartment, apartments_data)
+
+print(similar_apartments)
+
+closest_apartments_details <- apartments_data[similar_apartments$indices, ]
+
+print("Detalles de los apartamentos más cercanos:")
+print(closest_apartments_details)
 
 ```
 
